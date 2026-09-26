@@ -74,14 +74,17 @@ static device_field_data_t bluetti_device_state[] = {
   // = 5.6V. Equivalent supplies cannot differ 10x, so 0x56 is 56V.
   // Note V x A == W holds at EITHER scaling (the product is scale invariant),
   // so the evidence is this cross-comparison and the supply nameplate, not the
-  // power equality.
+  // power equality. It is also what settles the scale against bluetti-bt-lib,
+  // which reads this register at scale 1 and would report 5.5V for the 55V
+  // measured here.
   {INTERNAL_DC_INPUT_VOLTAGE, 0x00, 0x56, 1, 0, 0, DECIMAL_FIELD},
   // 0x58 is the DC input current in centiamps, checked against the two other
   // registers describing the same circuit instead of a nameplate:
   // 0x57/10 / 0x56 == 0x58/100 held to two decimals in every capture taken -
   // 475.1W / 55V = 8.64A vs 859 -> 8.59A, and 471.6W / 55V = 8.574A vs
-  // 857 -> 8.57A. 0x59 is zero, so the 2-register reading bluetti-bt-lib's map
-  // implies would yield 56295424; scale 1 would yield 84.2A.
+  // 857 -> 8.57A; 0x59 is zero. bluetti-bt-lib agrees: its
+  // DecimalField(INTERNAL_DC_INPUT_CURRENT, 88, 2) is scale 2 on one register.
+  // Scale 1 would give 84.2A.
   // Upstream lists this register at scale 1 for AC300/EP500P, but that is
   // unverified for those units and has been left untouched here.
   {INTERNAL_DC_INPUT_CURRENT, 0x00, 0x58, 1, 2, 0, DECIMAL_FIELD},
