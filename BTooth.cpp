@@ -24,6 +24,18 @@ static uint8_t rawFramePage   = 0xFF;
 static uint8_t rawFrameOffset = 0;
 static portMUX_TYPE rawFrameMux = portMUX_INITIALIZER_UNLOCKED;
 
+/* --- register sweep state (see requestReadRegs in BTooth.h) --------------
+ * sweepAddr is (page << 8) | offset while a read is outstanding, 0xFFFF when
+ * idle. The loop task starts and expires it, the Web task starts it, the NimBLE
+ * task answers it - so all of it goes under the lock. */
+#define SWEEP_TIMEOUT_MS 3000
+static volatile uint16_t sweepAddr = 0xFFFF;
+static volatile unsigned long sweepStartedAt = 0;
+static volatile bool sweepResultReady = false;
+static uint8_t sweepResult[3 + 2 * SWEEP_QTY + 2];   /* header + registers + CRC room */
+static size_t  sweepResultLen = 0;
+static portMUX_TYPE sweepMux = portMUX_INITIALIZER_UNLOCKED;
+
 /* --- response reassembly -------------------------------------------------
  * One response can span several notifications: the station's ATT MTU delivers
  * 244 bytes at a time, while a page-0 response is 257 bytes of header + data (and
@@ -225,12 +237,11 @@ static void notifyCallback(
       Serial.println(F("[BT] incomplete response abandoned"));
     }
 
-    // Zero timeout: this runs in the NimBLE host task, so blocking here stalls
-    // the BLE stack. A frame with no request outstanding is dropped.
+    // Collect the next frame. Which command it belongs to is decided once the
+    // frame is complete: the poll's queue is popped there, and a register sweep
+    // answer is recognised by its length instead - so an address the station
+    // refuses cannot desynchronise that queue.
     if (!rxActive) {
-      if (!xQueueReceive(commandHandleQueue, &rxCmd, 0)) {
-        return;
-      }
       rxActive = true;
       rxLen = 0;
       rxStartedAt = millis();
@@ -247,13 +258,41 @@ static void notifyCallback(
     if (rxLen < 3) {
       return;                       // not even the header yet
     }
-    size_t frameLen = 3 + (size_t)rxBuf[2];
+    // A MODBUS exception is 5 bytes (unit, function|0x80, code, CRC) and its
+    // third byte is the exception code, not a length.
+    size_t frameLen = (rxBuf[1] == 0x83) ? 5 : 3 + (size_t)rxBuf[2];
     if (rxLen < frameLen) {
       return;                       // more notifications to come
     }
 
-    // Complete. Keep header + declared data for GET /rawPage (the trailing CRC
-    // is not part of the register image).
+    // A register sweep has a read outstanding and this is its answer: either the
+    // registers it asked for, or an exception for an address the station will not
+    // serve. Nothing is taken off the poll's command queue here - that is what
+    // keeps the queue 1:1 with poll answers even when a sweep address is refused.
+    if (sweepAddr != 0xFFFF &&
+        (frameLen == 3 + 2 * SWEEP_QTY || rxBuf[1] != 0x03)) {
+      size_t copy = frameLen < sizeof(sweepResult) ? frameLen : sizeof(sweepResult);
+      portENTER_CRITICAL(&sweepMux);
+      memcpy(sweepResult, rxBuf, copy);
+      sweepResultLen   = copy;
+      sweepAddr        = 0xFFFF;    // answered: the poll may resume
+      sweepResultReady = true;
+      portEXIT_CRITICAL(&sweepMux);
+      rxActive = false;
+      rxLen = 0;
+      return;
+    }
+
+    // Otherwise it is the poll's answer, so now take its command off the queue
+    // and read the frame against the registers that command asked for.
+    if (!xQueueReceive(commandHandleQueue, &rxCmd, 0)) {
+      rxActive = false;             // nothing outstanding: drop it
+      rxLen = 0;
+      return;
+    }
+
+    // Keep header + declared data for GET /rawPage (the trailing CRC is not part
+    // of the register image).
     if (rxCmd.page == 0x00 && frameLen <= RAW_FRAME_MAX) {
       portENTER_CRITICAL(&rawFrameMux);
       memcpy(rawFrame, rxBuf, frameLen);
@@ -263,9 +302,36 @@ static void notifyCallback(
       portEXIT_CRITICAL(&rawFrameMux);
     }
 
-    parse_bluetooth_data(rxCmd.page, rxCmd.offset, rxBuf, frameLen);
+    // Anything that is not a read response carries no register data, so it must
+    // not reach the field parser and get published as values.
+    if (rxBuf[1] == 0x03) {
+      parse_bluetooth_data(rxCmd.page, rxCmd.offset, rxBuf, frameLen);
+    }
     rxActive = false;
     rxLen = 0;
+}
+
+/* Find a characteristic by UUID without assuming which service hosts it.
+ * bluetti-bt-lib addresses FF01/FF02 the same way - its const.py carries no
+ * service UUID at all - and hardcoding the service is what produced the
+ * intermittent "Failed to find our service UUID" failures. The characteristic
+ * lookup below is identical either way; it just no longer depends on guessing
+ * the service. */
+static BLERemoteCharacteristic* findCharacteristicAnywhere(BLEClient *client, BLEUUID uuid) {
+  auto *services = client->getServices();
+  if (services == nullptr) return nullptr;
+  for (auto *service : *services) {
+    if (service == nullptr) continue;
+    BLERemoteCharacteristic *characteristic = service->getCharacteristic(uuid);
+    if (characteristic != nullptr) {
+      Serial.print(F("[BT] - found "));
+      Serial.print(uuid.toString().c_str());
+      Serial.print(F(" in service "));
+      Serial.println(service->getUUID().toString().c_str());
+      return characteristic;
+    }
+  }
+  return nullptr;
 }
 
 bool connectToServer() {
@@ -284,19 +350,22 @@ bool connectToServer() {
     Serial.println(F("[BT] - Connected to server"));
     // pClient->setMTU(517); //set client to request maximum MTU from server (default is 23 otherwise)
   
-    // Obtain a reference to the service we are after in the remote BLE server.
+    // Obtain a reference to the characteristics we are after. The documented
+    // service is tried first; if the station does not present it, search every
+    // service for the characteristic rather than failing the whole connection.
     BLERemoteService* pRemoteService = pClient->getService(serviceUUID);
     if (pRemoteService == nullptr) {
-      Serial.print(F("[BT] Failed to find our service UUID: "));
-      Serial.println(serviceUUID.toString().c_str());
-      pClient->disconnect();
-      return false;
+      Serial.print(F("[BT] service "));
+      Serial.print(serviceUUID.toString().c_str());
+      Serial.println(F(" not found - looking for the characteristic instead"));
+    } else {
+      Serial.println(F("[BT] - Found our service"));
     }
-    Serial.println(F("[BT] - Found our service"));
-
 
     // Obtain a reference to the characteristic in the service of the remote BLE server.
-    pRemoteWriteCharacteristic = pRemoteService->getCharacteristic(WRITE_UUID);
+    pRemoteWriteCharacteristic = (pRemoteService != nullptr)
+        ? pRemoteService->getCharacteristic(WRITE_UUID)
+        : findCharacteristicAnywhere(pClient, WRITE_UUID);
     if (pRemoteWriteCharacteristic == nullptr) {
       Serial.print(F("[BT] Failed to find our characteristic UUID: "));
       Serial.println(WRITE_UUID.toString().c_str());
@@ -305,15 +374,16 @@ bool connectToServer() {
     }
     Serial.println(F("[BT] - Found our Write characteristic"));
 
-        // Obtain a reference to the characteristic in the service of the remote BLE server.
-    pRemoteNotifyCharacteristic = pRemoteService->getCharacteristic(NOTIFY_UUID);
+    pRemoteNotifyCharacteristic = (pRemoteService != nullptr)
+        ? pRemoteService->getCharacteristic(NOTIFY_UUID)
+        : findCharacteristicAnywhere(pClient, NOTIFY_UUID);
     if (pRemoteNotifyCharacteristic == nullptr) {
       Serial.print(F("[BT] Failed to find our characteristic UUID: "));
       Serial.println(NOTIFY_UUID.toString().c_str());
       pClient->disconnect();
       return false;
     }
-    Serial.println(F("[BT] - Found our Write characteristic"));
+    Serial.println(F("[BT] - Found our Notify characteristic"));
 
     // Read the value of the characteristic.
     if(pRemoteWriteCharacteristic->canRead()) {
@@ -364,7 +434,64 @@ void sendBTCommand(bt_command_t command){
     xQueueSend(sendQueue, &cmd, 0);
 }
 
+/* --- register sweep: one read at a time, driven by GET /readRegs --------- */
+bool requestReadRegs(uint8_t page, uint8_t offset) {
+  if (!connected || pRemoteWriteCharacteristic == nullptr) return false;
+  if ((uint16_t)offset + SWEEP_QTY > 256) return false;   // would spill into the next page
+
+  portENTER_CRITICAL(&sweepMux);
+  if (sweepAddr != 0xFFFF || sweepResultReady) {          // one at a time
+    portEXIT_CRITICAL(&sweepMux);
+    return false;
+  }
+  sweepAddr      = ((uint16_t)page << 8) | offset;
+  sweepStartedAt = millis();
+  portEXIT_CRITICAL(&sweepMux);
+
+  bt_command_t command;
+  command.prefix          = 0x01;
+  command.field_update_cmd = 0x03;
+  command.page            = page;
+  command.offset          = offset;
+  command.len             = (uint16_t)SWEEP_QTY << 8;   // little-endian on the wire
+  command.check_sum       = modbus_crc((uint8_t*)&command, 6);
+
+  // sendQueue only, never commandHandleQueue: the answer is matched by its
+  // length in notifyCallback, so the poll's queue stays 1:1 with poll answers.
+  xQueueSend(sendQueue, &command, 0);
+  return true;
+}
+
+bool takeSweepResult(uint8_t *dst, size_t dstSize, size_t *len) {
+  bool taken = false;
+  portENTER_CRITICAL(&sweepMux);
+  if (sweepResultReady && sweepResultLen > 0 && sweepResultLen <= dstSize) {
+    memcpy(dst, sweepResult, sweepResultLen);
+    *len = sweepResultLen;
+    sweepResultReady = false;
+    taken = true;
+  }
+  portEXIT_CRITICAL(&sweepMux);
+  return taken;
+}
+
+/* loop task: release a read the station never answered, so the poll resumes and
+ * the waiting request reports a timeout instead of hanging. */
+static void sweepTick() {
+  if (sweepAddr == 0xFFFF) return;
+  if (millis() - sweepStartedAt < SWEEP_TIMEOUT_MS) return;
+  portENTER_CRITICAL(&sweepMux);
+  sweepAddr = 0xFFFF;
+  sweepResultReady = false;
+  portEXIT_CRITICAL(&sweepMux);
+  { SerialLock lock; Serial.println(F("[BT] sweep read timed out, poll resumes")); }
+}
+
 void handleBluetooth(){
+
+  // Release a sweep read the station never answered, so the poll below resumes
+  // and the waiting /readRegs request can report a timeout.
+  sweepTick();
 
   if (doConnect == true) {
     if (connectToServer()) {
@@ -398,8 +525,10 @@ void handleBluetooth(){
 
   if (connected) {
 
-    // poll for device state
-    if ( millis() - lastBTMessage > BLUETOOTH_QUERY_MESSAGE_DELAY){
+    // poll for device state. Paused while a register sweep has a read
+    // outstanding: the sweep's answer must not interleave with the poll's, and
+    // the 3 s poll would otherwise take the wire the sweep needs.
+    if ( sweepAddr == 0xFFFF && millis() - lastBTMessage > BLUETOOTH_QUERY_MESSAGE_DELAY){
 
        bt_command_t command;
        command.prefix = 0x01;

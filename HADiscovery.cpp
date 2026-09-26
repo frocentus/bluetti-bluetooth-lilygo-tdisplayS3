@@ -146,10 +146,14 @@ static const ha_meta_t ha_meta[] = {
   {PACK_NUM,                 "",   "",          "",            "mdi:battery-plus",        false, 1, 8, 1},
   {PACK_NUM_MAX,             "",   "",          "",            "mdi:battery-plus",        true,  0, 0, 0},
 
-  /* --- ambiguous: the raw value's unit is not established for this project,
-     so no unit/class is claimed and no state_class is set (that would feed the
-     energy dashboard with an unverified series). */
-  {POWER_GENERATION,         "",   "",          "",            "mdi:chart-line",          false, 0, 0, 0},
+  /* Lifetime PV generation. The unit comes from Patrick762/bluetti-bt-lib's
+     FieldUnit table (FieldName.POWER_GENERATION: "kWh"), which is the only
+     source that states one - this project had left the field unitless rather
+     than guess, which is also why it was kept out of the energy dashboard.
+     Monotonic behaviour is assumed rather than measured; if the station ever
+     resets the counter, total_increasing reads the drop as a new cycle, which is
+     the right interpretation for a lifetime counter. */
+  {POWER_GENERATION,         "kWh", "energy",  "total_increasing", "mdi:chart-line",     false, 0, 0, 0},
 
   /* --- text / enum ------------------------------------------------------ */
   /* These two are the AC *output* group on AC200M, so they are user-facing

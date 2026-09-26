@@ -61,4 +61,27 @@ String btScanNamesReport();
  * reads it. */
 #define RAW_FRAME_MAX 300
 bool getRawPageFrame(uint8_t page, uint8_t *dst, size_t dstSize, size_t *len, uint8_t *offset);
+
+/* --- register sweep ------------------------------------------------------
+ * Queue one MODBUS read of SWEEP_QTY registers and answer it through
+ * GET /readRegs. tools/sweep_regs.py drives this to walk the whole
+ * 0x0000-0x1FFF address space: the field map only names registers somebody has
+ * already identified, so reading everything is how the rest get found.
+ *
+ * The bridge cannot sweep by itself - the 3 s poll cadence would make 800 blocks
+ * take the better part of an hour - so the reads are driven from a PC.
+ *
+ * One request at a time, and the normal poll pauses while one is outstanding so
+ * the two cannot interleave. A sweep answer is matched by its expected frame
+ * length rather than through the poll's command queue, because an address the
+ * station refuses to serve would otherwise shift that queue and publish every
+ * later value against the wrong field.
+ *
+ * requestReadRegs returns false if a read is already outstanding, BLE is down,
+ * or the block would run past the end of its page. takeSweepResult returns false
+ * if the answer has not arrived (or was already taken). */
+#define SWEEP_QTY      10
+#define SWEEP_WAIT_MS  3500
+bool requestReadRegs(uint8_t page, uint8_t offset);
+bool takeSweepResult(uint8_t *dst, size_t dstSize, size_t *len);
 #endif

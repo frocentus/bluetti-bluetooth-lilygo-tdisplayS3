@@ -311,6 +311,62 @@ void initBWifi(bool resetWifi){
         "\nregister N sits at data byte 2*(0x" + String(offset, HEX) + "-offset);\n" + hex + "\n");
   });
 
+  /* Register sweep: queue one 10-register MODBUS read and answer with the raw
+   * response. tools/sweep_regs.py drives this to walk the whole 0x0000-0x1FFF
+   * address space - the bridge cannot do it on its own, because at the 3 s poll
+   * cadence ~800 blocks would take the better part of an hour.
+   *
+   * One GET is one register block: the handler waits for the BLE answer, so it
+   * holds the web task for up to SWEEP_WAIT_MS. That is the point of a
+   * deliberate diagnostic, and nothing on the normal polling path does it.
+   * Read-only, and it exposes the same telemetry /rawPage already does. */
+  server.on("/readRegs", HTTP_GET, [](AsyncWebServerRequest *request){
+      if (!request->hasParam("page") || !request->hasParam("offset")) {
+        request->send(400, "text/plain",
+          "usage: /readRegs?page=<0x00-0x1f>&offset=<0x00-0xff>\n"
+          "reads " + String(SWEEP_QTY) + " registers starting at (page<<8)|offset\n"
+          "example: /readRegs?page=0x1f&offset=0x00\n");
+        return;
+      }
+      long page   = strtol(request->getParam("page")->value().c_str(),   nullptr, 0);
+      long offset = strtol(request->getParam("offset")->value().c_str(), nullptr, 0);
+      if (page < 0 || page > 0x1F || offset < 0 || offset > 0xFF) {
+        request->send(400, "text/plain", "page must be 0x00-0x1f and offset 0x00-0xff\n");
+        return;
+      }
+      if (!requestReadRegs((uint8_t)page, (uint8_t)offset)) {
+        request->send(409, "text/plain",
+          "busy (a sweep read is already outstanding) or Bluetooth not connected\n");
+        return;
+      }
+
+      uint8_t buf[3 + 2 * SWEEP_QTY + 2];
+      size_t  len = 0;
+      bool    got = false;
+      unsigned long startedAt = millis();
+      while (!got && millis() - startedAt < SWEEP_WAIT_MS) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+        got = takeSweepResult(buf, sizeof(buf), &len);
+      }
+      if (!got) {
+        request->send(504, "text/plain",
+          "no response within " + String(SWEEP_WAIT_MS) + "ms\n");
+        return;
+      }
+
+      String hex;
+      hex.reserve(len * 3 + 8);
+      for (size_t i = 0; i < len; i++) {
+        char b[4];
+        snprintf(b, sizeof(b), "%02x", buf[i]);
+        hex += b;
+        if (i % 2) hex += ' ';
+      }
+      request->send(200, "text/plain",
+        "page=0x" + String(page, HEX) + " offset=0x" + String(offset, HEX) +
+        " qty=" + String(SWEEP_QTY) + " bytes=" + String(len) + "\n" + hex + "\n");
+  });
+
   /* Lists the Bluetooth names heard by the most recent scan. Aimed at setting a
    * board up on site: the Bluetooth ID has to match the station's advertised name
    * exactly, and reading it off a list beats typing an 18-character string from a

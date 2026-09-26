@@ -141,6 +141,7 @@ in the dark cannot page blindly or reboot the board.
 | `/scanBT` | Bluetooth names heard by the last scan |
 | `/setBluettiID?value=<name>` | change the pairing without wiping other config |
 | `/rawPage` | last raw page-0 BLE frame as hex — for register work |
+| `/readRegs?page=<0x00-0x1f>&offset=<0x00-0xff>` | read 10 registers on demand and answer with the raw frame — drives the register sweep |
 | `/rebootDevice` | restart |
 | `/resetConfig` | **wipe WiFi + MQTT + Bluetooth id**, reboot into the portal |
 | `/switchLogging` | toggle the message viewer |
@@ -184,7 +185,7 @@ private addresses or serial numbers live in the source:
 ```bash
 export BLUETTI_BROKER=192.168.1.11:1883        # MQTT broker, host[:port]
 export BLUETTI_DEVICE_ID=AC200M2306000000000   # the station's Bluetooth name
-export BLUETTI_BRIDGE=http://192.168.1.50      # only decode_page.py needs this
+export BLUETTI_BRIDGE=http://192.168.1.50      # decode_page.py and sweep_regs.py
 ```
 
 | Script | Purpose |
@@ -193,6 +194,7 @@ export BLUETTI_BRIDGE=http://192.168.1.50      # only decode_page.py needs this
 | `mqtt_cmd.py <field> <ON\|OFF\|number>` | send a command and watch the resulting state |
 | `watch_availability.py` | follow the retained `status` topic |
 | `decode_page.py fetch\|show\|diff <label>` | decode `/rawPage` register dumps, and diff two captures |
+| `sweep_regs.py [--from 0x0000 --to 0x1fff]` | walk the whole register space through `/readRegs` to find registers the map does not name |
 | `purge_node.py <node>` | delete retained topics left behind by a changed Bluetooth id |
 
 ## Troubleshooting
@@ -232,8 +234,18 @@ become misleading. Use `/rawPage` when you need a register page instead.
   hardware the way the AC200M's was. Expect wrong values before trusting them.
 - The device type is a **compile-time** setting (`BLUETTI_TYPE` in `config.h`) —
   change it and rebuild for a different model.
-- Two registers (`0x4B`, `0x35`) remain unidentified, and are deliberately left
-  unnamed rather than guessed at.
+- Register `0x35` remains unidentified and is deliberately left unnamed rather
+  than guessed at. `0x4B` is not a mystery after all: it is the low half of the
+  32-bit AC output frequency at `0x4A`, which the map already reads as a single
+  2-register field — a per-register listing made it look like a separate one.
+- **The AC200M's readable register space is mapped out.** A full sweep with
+  `tools/sweep_regs.py` (800 ten-register blocks covering `0x0000`–`0x1fff`) got
+  register data from 27 blocks and a MODBUS exception from the other 773: page
+  `0x00` answers `0x00`–`0xd1`, page `0x0b` answers `0xbe`–`0xf9`, and nothing
+  else answers at all. Of the 73 page-0 registers beyond what the poll reads,
+  exactly one is non-zero — `0x00cd` holds a constant `0x0101`, left unnamed.
+  So the map is not missing anything readable on this model; a different firmware
+  may differ.
 - While the config portal is running, `loop()` is not, so the buttons do nothing
   and the panel is static. That is inherent to `autoConnect()` blocking.
 - `parse_enum_field()` publishes a label for the enums the device headers
@@ -255,6 +267,10 @@ GPL-3.0 throughout:
   original protocol reverse-engineering that the device tables derive from
 - [ebangerter/bluetti](https://github.com/ebangerter/bluetti) — used to
   cross-check several AC200M register names and scales
+- [Patrick762/bluetti-bt-lib](https://github.com/Patrick762/bluetti-bt-lib)
+  (MIT) — its `FieldUnit` table is where `power_generation`'s kWh unit comes
+  from, and its register sweep and characteristic-based connection shaped
+  `/readRegs` and the BLE connect path
 
 Changes made for this version, 2026: rebuilt for the LilyGo T-Display S3
 (PlatformIO, ESP32-S3, parallel ST7789 panel), a corrected and extended AC200M
