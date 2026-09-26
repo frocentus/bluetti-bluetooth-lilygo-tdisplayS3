@@ -235,9 +235,11 @@ become misleading. Use `/rawPage` when you need a register page instead.
 - The device type is a **compile-time** setting (`BLUETTI_TYPE` in `config.h`) —
   change it and rebuild for a different model.
 - Register `0x35` remains unidentified and is deliberately left unnamed rather
-  than guessed at. `0x4B` is not a mystery after all: it is the low half of the
-  32-bit AC output frequency at `0x4A`, which the map already reads as a single
-  2-register field — a per-register listing made it look like a separate one.
+  than guessed at. `0x4B` is unnamed for a different reason: it reads 0 with the
+  AC output on or off, so it is simply unused on this model. An earlier note
+  here claimed it was the low half of the AC frequency at `0x4A`; reading both
+  with the inverter running (`0x4A` = 500 → 50.00 Hz) showed the frequency is
+  that single register at ÷10, not a 2-register field.
 - **The AC200M's readable register space is mapped out.** A full sweep with
   `tools/sweep_regs.py` (800 ten-register blocks covering `0x0000`–`0x1fff`) got
   register data from 27 blocks and a MODBUS exception from the other 773: page

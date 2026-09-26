@@ -51,7 +51,11 @@ static device_field_data_t bluetti_device_state[] = {
   {AC_OUTPUT_MODE,            0x00, 0x46, 1, 0, ENUM_OUTPUT_MODE, ENUM_FIELD},
   {INTERNAL_AC_VOLTAGE,       0x00, 0x47, 1, 0, 0, DECIMAL_FIELD},
   {INTERNAL_CURRENT_ONE,      0x00, 0x48, 1, 1, 0, DECIMAL_FIELD},
-  {INTERNAL_AC_FREQUENCY,     0x00, 0x4A, 2, 1, 0, DECIMAL_FIELD},
+  // Single register holding whole tenths of a hertz: 0x4A reads 500 while
+  // inverting (50.00 Hz) and 0x4B reads 0 with the AC output on or off, so it
+  // is not part of this field. Size 2 was harmless - the 0x4B half is always
+  // zero - but it claims a register that is not this field's.
+  {INTERNAL_AC_FREQUENCY,     0x00, 0x4A, 1, 1, 0, DECIMAL_FIELD},
 
   {AC_INPUT_VOLTAGE,          0x00, 0x4D, 1, 1, 0, DECIMAL_FIELD},
   // AC input current, in centiamps: register 0x4E read 861 (8.61 A) while the AC
