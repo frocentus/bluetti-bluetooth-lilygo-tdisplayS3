@@ -1,0 +1,17 @@
+# PlatformIO build output and state
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Espressif's generic debug file for OpenOCD/GDB (1.7 MB, not ours)
+esp32.svd
+
+# Python tooling caches (tools/*.py get linted/imported locally)
+.ruff_cache/
+__pycache__/
+*.pyc
+
+# Editor / OS noise
+.vscode/
+*.bak
+*.orig
