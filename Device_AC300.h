@@ -18,18 +18,18 @@ enum ups_mode {
     TIME_CONTROl = 4  
 };
 
-enum auto_sleep_mode {
-  THIRTY_SECONDS = 2,
-  ONE_MINNUTE = 3,
-  FIVE_MINUTES = 4,
+enum display_timeout {
+  SEC_30 = 2,
+  MIN_1 = 3,
+  MIN_5 = 4,
   NEVER = 5  
 };
 */
 
-enum auto_sleep_mode {
-  THIRTY_SECONDS = 2,
-  ONE_MINNUTE = 3,
-  FIVE_MINUTES = 4,
+enum display_timeout {
+  SEC_30 = 2,
+  MIN_1 = 3,
+  MIN_5 = 4,
   NEVER = 5
 };
 
@@ -98,7 +98,7 @@ static device_field_data_t bluetti_device_state[] = {
   {UPS_MODE,                 0x0B, 0xB9, 1, 0, 0, UINT_FIELD},
    //{PACK_NUM,                 0x0B, 0xBE, 1, 0, 0, UINT_FIELD},
   {GRID_CHARGE_ON,           0x0B, 0xC3, 1, 0, 0, BOOL_FIELD},
-  {AUTO_SLEEP_MODE,          0x0B, 0xF5, 1, 0, 0, UINT_FIELD}
+  {DISPLAY_TIMEOUT,          0x0B, 0xF5, 1, 0, 0, UINT_FIELD}
 
   
 };

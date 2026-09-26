@@ -167,9 +167,16 @@ bluetti/<id>/status              "online"/"offline" (retained, last will)
 
 Home Assistant creates the entities from retained discovery configs on
 `homeassistant/<component>/<node>/<object>/config` — sensors for readable fields,
-switches for boolean settings, a number for the sleep timer, a button for power
-off. Every entity points at the `state/` and `command/` topics above, so the raw
-topics keep working for anything else that consumes them.
+switches for boolean settings, a number for the display timeout (30 s / 1 min /
+5 min / never), a button for power off. Every entity points at the `state/` and
+`command/` topics above, so the raw topics keep working for anything else that
+consumes them.
+
+That setting used to be called `auto_sleep_mode`. It is the panel's own display
+timeout rather than a power-saving sleep, so it is now `display_timeout` and its
+states read `SEC_30`, `MIN_1`, `MIN_5` and `NEVER` instead of bare numbers. On an
+existing install this shows up as a new entity, so the stale one should be
+deleted, along with its retained config and state topics.
 
 The MQTT client id is derived from the board's MAC, so two bridges can share a
 broker without evicting each other.

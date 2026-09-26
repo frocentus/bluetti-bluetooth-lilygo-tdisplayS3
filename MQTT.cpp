@@ -81,8 +81,8 @@ String map_field_name(enum field_names f_name){
       case UPS_MODE:
         return "ups_mode";
         break;
-      case AUTO_SLEEP_MODE:
-        return "auto_sleep_mode";
+      case DISPLAY_TIMEOUT:
+        return "display_timeout";
         break;
       case GRID_CHARGE_ON:
         return "grid_charge_on";
@@ -298,6 +298,25 @@ String map_command_value(String command_name, String value){
     }
   }
 
+
+  /* The display timeout publishes these tokens as its state, and the labels in
+   * PayloadParser.cpp are meant to be writable straight back. Without this case
+   * the fallthrough reaches toInt(), where "MIN_5" is 0 - outside the 2..5
+   * range the device accepts, which the headers warn confuses the HMI. */
+  if(command_name == "DISPLAY_TIMEOUT"){
+    if (value == "SEC_30") {
+      toRet = "2";
+    }
+    if (value == "MIN_1") {
+      toRet = "3";
+    }
+    if (value == "MIN_5") {
+      toRet = "4";
+    }
+    if (value == "NEVER") {
+      toRet = "5";
+    }
+  }
 
   return toRet;
 }

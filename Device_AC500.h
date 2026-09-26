@@ -18,10 +18,10 @@ enum ups_mode {
     TIME_CONTROl = 4  
 };
 
-enum auto_sleep_mode {
-  THIRTY_SECONDS = 2,
-  ONE_MINNUTE = 3,
-  FIVE_MINUTES = 4,
+enum display_timeout {
+  SEC_30 = 2,
+  MIN_1 = 3,
+  MIN_5 = 4,
   NEVER = 5  
 };
 */

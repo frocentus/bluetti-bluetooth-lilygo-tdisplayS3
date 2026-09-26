@@ -4,6 +4,7 @@
 #include "HADiscovery.h"
 #include "BluettiConfig.h"
 #include "MQTT.h"
+#include "PayloadParser.h"
 #include "BWifi.h"
 #include "config.h"
 
@@ -140,7 +141,12 @@ static const ha_meta_t ha_meta[] = {
   /* --- writable numbers. Ranges come from the enums documented in
      DEVICE_*.h; the AC200M/EB3A notes there warn that out-of-range values
      confuse the HMI, so they are worth being explicit about. */
-  {AUTO_SLEEP_MODE,          "",   "",          "",            "mdi:sleep",               false, 2, 5, 1},
+  /* 0xBF5 is the panel's own display timeout, not a power-saving sleep: values
+     2..5 mean 30 s / 1 min / 5 min / never. bluetti-bt-lib's DisplayMode enum
+     pairs the same register (3061) with the same four values on the AC200M,
+     EP500P, AC500 and EP500 - and has it commented out for the AC300, which is
+     consistent with that device table being unverified. */
+  {DISPLAY_TIMEOUT,          "",   "",          "",            "mdi:monitor-off",         false, 2, 5, 1},
   {UPS_MODE,                 "",   "",          "",            "mdi:power-settings",      false, 1, 4, 1},
   /* device dependent: PACK_NUM_MAX reports the real ceiling for this unit */
   {PACK_NUM,                 "",   "",          "",            "mdi:battery-plus",        false, 1, 8, 1},
@@ -320,12 +326,16 @@ static void publishEntity(enum field_names f, const device_field_data_t *st,
       cmdExtra = "\"min\":" + String(m->min) + ",\"max\":" + String(m->max) +
                  ",\"step\":" + String(m->step ? m->step : 1) + ",";
     }
+  } else if (cm && cm->f_type == ENUM_FIELD && st) {
+    // A writable enum that also reports its state: "select" is the component that
+    // both shows the label and can set it. The options come from the same table
+    // parse_enum_field() reads, so what is displayed is what can be chosen, and
+    // map_command_value() accepts those same labels on the command topic.
+    component = "select";
+    cmdExtra = "\"options\":" + enum_label_options((uint8_t)cm->f_enum) + ",";
   } else if (cm && cm->f_type == ENUM_FIELD) {
-    // A Home Assistant "select" needs a state_topic to report the active option,
-    // and these enum commands (LED_MODE, ECO_SHUTDOWN, CHARGING_MODE on EB3A /
-    // EP500P) have no entry in their device's state table, so the select would sit
-    // permanently "unknown". parse_enum_field() now returns real labels, so this
-    // is only blocked on those devices reporting the value back; control still
+    // No readable state, so the select would sit permanently "unknown" - skipped
+    // (LED_MODE, ECO_SHUTDOWN, CHARGING_MODE on EB3A / EP500P). Control still
     // works through the raw command topic meanwhile.
     g_skipped++;
     #ifdef DEBUG

@@ -3,10 +3,10 @@
 #include "Arduino.h"
 
 
-enum auto_sleep_mode {
-  THIRTY_SECONDS = 2,
-  ONE_MINNUTE = 3,
-  FIVE_MINUTES = 4,
+enum display_timeout {
+  SEC_30 = 2,
+  MIN_1 = 3,
+  MIN_5 = 4,
   NEVER = 5  
 };
 
@@ -120,7 +120,7 @@ static device_field_data_t bluetti_device_state[] = {
 
   //Page 0x0B Controls 
   // Time after the display switches off -> READ
-  {AUTO_SLEEP_MODE,           0x0B, 0xF5, 1, 0, 0, UINT_FIELD},
+  {DISPLAY_TIMEOUT,           0x0B, 0xF5, 1, 0, ENUM_DISPLAY_TIMEOUT, ENUM_FIELD},
 
 };
 
@@ -134,11 +134,11 @@ static device_field_data_t bluetti_device_command[] = {
 
   // Time after the display switches off -> WRITE
   // Caution: there is no check on the device, if the value is within the list of alowed values.
-  // for allowed values see <enum auto_sleep_mode> above, use of other values seems to confuse the HMI.
+  // for allowed values see <enum display_timeout> above, use of other values seems to confuse the HMI.
   // The possibility to set this parameter on the HMI (Diplay) disappears.
   // But by writing an allowed value it turns back to normality.
   // I guess this is true for all "enum type" settings
-  {AUTO_SLEEP_MODE,           0x0B, 0xF5, 1, 0, 0, UINT_FIELD},
+  {DISPLAY_TIMEOUT,           0x0B, 0xF5, 1, 0, ENUM_DISPLAY_TIMEOUT, ENUM_FIELD},
   {POWER_OFF,                 0x0B, 0xF4, 1, 0, 0, BOOL_FIELD},
   
 };

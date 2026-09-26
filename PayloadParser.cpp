@@ -48,7 +48,7 @@ String parse_string_field(uint8_t data[]) {
 
 /* Labels for enum-valued fields. The values come from the enums documented in
  * the DEVICE_*.h headers; these are declared as {value, label} pairs rather than
- * a plain array so a gap in the range (AUTO_SLEEP_MODE starts at 2, UPS_MODE at
+ * a plain array so a gap in the range (DISPLAY_TIMEOUT starts at 2, UPS_MODE at
  * 1) needs no fake filler entries.
  *
  * The tokens deliberately match what map_command_value() accepts, so a value read
@@ -66,8 +66,8 @@ static const enum_label_t ups_mode_labels[] = {
   {1, "CUSTOMIZED"}, {2, "PV_PRIORITY"}, {3, "STANDARD"}, {4, "TIME_CONTROL"}
 };
 
-static const enum_label_t auto_sleep_mode_labels[] = {
-  {2, "THIRTY_SECONDS"}, {3, "ONE_MINUTE"}, {4, "FIVE_MINUTES"}, {5, "NEVER"}
+static const enum_label_t display_timeout_labels[] = {
+  {2, "SEC_30"}, {3, "MIN_1"}, {4, "MIN_5"}, {5, "NEVER"}
 };
 
 static const enum_label_t led_mode_labels[] = {
@@ -93,27 +93,49 @@ static const char *lookup_enum_label(const enum_label_t *table, size_t count, in
   return nullptr;
 }
 
+/* The {value, label} table for one enum id, shared by the state parser and the
+ * Home Assistant select options so the two cannot drift apart. */
+static bool enumTableFor(uint8_t enum_id, const enum_label_t **table, size_t *count) {
+  switch (enum_id) {
+    case ENUM_OUTPUT_MODE:
+      *table = output_mode_labels;     *count = ENUM_LABEL_COUNT(output_mode_labels);     return true;
+    case ENUM_UPS_MODE:
+      *table = ups_mode_labels;        *count = ENUM_LABEL_COUNT(ups_mode_labels);        return true;
+    case ENUM_DISPLAY_TIMEOUT:
+      *table = display_timeout_labels; *count = ENUM_LABEL_COUNT(display_timeout_labels); return true;
+    case ENUM_LED_MODE:
+      *table = led_mode_labels;        *count = ENUM_LABEL_COUNT(led_mode_labels);        return true;
+    case ENUM_ECO_SHUTDOWN:
+      *table = eco_shutdown_labels;    *count = ENUM_LABEL_COUNT(eco_shutdown_labels);    return true;
+    case ENUM_CHARGING_MODE:
+      *table = charging_mode_labels;   *count = ENUM_LABEL_COUNT(charging_mode_labels);   return true;
+    default:
+      return false;
+  }
+}
+
+/* An enum's labels as a JSON array fragment, for a Home Assistant "select"
+ * options list. Empty when the id has no table, so the caller can fall back to
+ * a number entity instead. */
+String enum_label_options(uint8_t enum_id) {
+  const enum_label_t *table = nullptr;
+  size_t count = 0;
+  if (!enumTableFor(enum_id, &table, &count)) return String();
+
+  String options = "[";
+  for (size_t i = 0; i < count; i++) {
+    if (i) options += ",";
+    options += "\"" + String(table[i].label) + "\"";
+  }
+  return options + "]";
+}
+
 String parse_enum_field(uint8_t data[], uint8_t enum_id) {
   int value = (int)parse_uint_field(data);
 
   const enum_label_t *table = nullptr;
   size_t count = 0;
-  switch (enum_id) {
-    case ENUM_OUTPUT_MODE:
-      table = output_mode_labels;     count = ENUM_LABEL_COUNT(output_mode_labels);     break;
-    case ENUM_UPS_MODE:
-      table = ups_mode_labels;        count = ENUM_LABEL_COUNT(ups_mode_labels);        break;
-    case ENUM_AUTO_SLEEP_MODE:
-      table = auto_sleep_mode_labels; count = ENUM_LABEL_COUNT(auto_sleep_mode_labels); break;
-    case ENUM_LED_MODE:
-      table = led_mode_labels;        count = ENUM_LABEL_COUNT(led_mode_labels);        break;
-    case ENUM_ECO_SHUTDOWN:
-      table = eco_shutdown_labels;    count = ENUM_LABEL_COUNT(eco_shutdown_labels);    break;
-    case ENUM_CHARGING_MODE:
-      table = charging_mode_labels;   count = ENUM_LABEL_COUNT(charging_mode_labels);   break;
-    default:
-      break;
-  }
+  enumTableFor(enum_id, &table, &count);
 
   const char *label = (table != nullptr) ? lookup_enum_label(table, count, value) : nullptr;
 
