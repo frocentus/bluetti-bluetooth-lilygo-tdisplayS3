@@ -326,11 +326,14 @@ static void publishEntity(enum field_names f, const device_field_data_t *st,
       cmdExtra = "\"min\":" + String(m->min) + ",\"max\":" + String(m->max) +
                  ",\"step\":" + String(m->step ? m->step : 1) + ",";
     }
-  } else if (cm && cm->f_type == ENUM_FIELD && st) {
+  } else if (cm && cm->f_type == ENUM_FIELD && st && cm->f_enum != ENUM_NONE) {
     // A writable enum that also reports its state: "select" is the component that
     // both shows the label and can set it. The options come from the same table
     // parse_enum_field() reads, so what is displayed is what can be chosen, and
     // map_command_value() accepts those same labels on the command topic.
+    // The ENUM_NONE guard matters: the EB3A/EP500P enum commands are typed
+    // ENUM_FIELD with no enum id, so a device that later reports one of those
+    // back would otherwise get an empty options list - rejected by HA as invalid.
     component = "select";
     cmdExtra = "\"options\":" + enum_label_options((uint8_t)cm->f_enum) + ",";
   } else if (cm && cm->f_type == ENUM_FIELD) {
