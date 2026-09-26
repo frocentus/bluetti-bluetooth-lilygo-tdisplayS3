@@ -238,3 +238,28 @@ become misleading. Use `/rawPage` when you need a register page instead.
 - `parse_enum_field()` publishes a label for the enums the device headers
   document; a value outside those ranges falls back to the raw number rather than
   disappearing.
+
+---
+
+## License and attribution
+
+**GPL-3.0** — see [`LICENSE`](LICENSE).
+
+This is a modified derivative of the Bluetti ESP32 bridge lineage, which is
+GPL-3.0 throughout:
+
+- [mariolukas/Bluetti_ESP32_Bridge](https://github.com/mariolukas/Bluetti_ESP32_Bridge)
+  — GPL-3.0, the bridge this is based on
+- [warhammerkid/bluetti_mqtt](https://github.com/warhammerkid/bluetti_mqtt) — the
+  original protocol reverse-engineering that the device tables derive from
+- [ebangerter/bluetti](https://github.com/ebangerter/bluetti) — used to
+  cross-check several AC200M register names and scales
+
+Changes made for this version, 2026: rebuilt for the LilyGo T-Display S3
+(PlatformIO, ESP32-S3, parallel ST7789 panel), a corrected and extended AC200M
+register map, Home Assistant MQTT discovery, four display pages with working
+buttons, a periodic BLE rescan so a station power-cycle recovers without a
+reboot, and the `/scanBT`, `/setBluettiID` and `/rawPage` endpoints.
+
+Because this is GPL-3.0: if you ship a board running this firmware, you have to
+make the corresponding source available too — including whatever you changed.
