@@ -146,13 +146,15 @@ static const ha_meta_t ha_meta[] = {
   {PACK_NUM,                 "",   "",          "",            "mdi:battery-plus",        false, 1, 8, 1},
   {PACK_NUM_MAX,             "",   "",          "",            "mdi:battery-plus",        true,  0, 0, 0},
 
-  /* Lifetime PV generation. The unit comes from Patrick762/bluetti-bt-lib's
-     FieldUnit table (FieldName.POWER_GENERATION: "kWh"), which is the only
-     source that states one - this project had left the field unitless rather
-     than guess, which is also why it was kept out of the energy dashboard.
-     Monotonic behaviour is assumed rather than measured; if the station ever
-     resets the counter, total_increasing reads the drop as a new cycle, which is
-     the right interpretation for a lifetime counter. */
+  /* PV generation. The unit comes from Patrick762/bluetti-bt-lib's FieldUnit
+     table (FieldName.POWER_GENERATION: "kWh") - the only source that states one,
+     which is why this project had left the field unitless and out of the energy
+     dashboard rather than guess. Whether the station's counter is lifetime,
+     daily or per-session is not established: it reads 0.00 with the station
+     switched off, so it is probably not lifetime. total_increasing is right in
+     all three readings - a drop counts as a new cycle and the cycles sum to the
+     cumulative energy - so the class is claimed here while the register map
+     keeps publishing the raw value. */
   {POWER_GENERATION,         "kWh", "energy",  "total_increasing", "mdi:chart-line",     false, 0, 0, 0},
 
   /* --- text / enum ------------------------------------------------------ */
