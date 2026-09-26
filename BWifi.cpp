@@ -308,7 +308,7 @@ void initBWifi(bool resetWifi){
       }
       request->send(200, "text/plain",
         "page=0x00 offset=0x" + String(offset, HEX) + " bytes=" + String(len) +
-        "\nregister N sits at data byte 2*(0x" + String(offset, HEX) + "-offset);\n" + hex + "\n");
+        "\nregister N sits at data byte 2*(N - 0x" + String(offset, HEX) + ");\n" + hex + "\n");
   });
 
   /* Register sweep: queue one 10-register MODBUS read and answer with the raw
