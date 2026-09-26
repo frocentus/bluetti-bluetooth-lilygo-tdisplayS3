@@ -24,6 +24,22 @@ static uint8_t rawFramePage   = 0xFF;
 static uint8_t rawFrameOffset = 0;
 static portMUX_TYPE rawFrameMux = portMUX_INITIALIZER_UNLOCKED;
 
+/* --- response reassembly -------------------------------------------------
+ * One response can span several notifications: the station's ATT MTU delivers
+ * 244 bytes at a time, while a page-0 response is 257 bytes of header + data (and
+ * 2 more of CRC). The parts have to be joined before parsing - a tail
+ * notification parsed on its own would be matched against whatever command
+ * happened to be queued next and its bytes read at the wrong offsets. Previously
+ * the tail was simply dropped, which is why the register map stopped at 0x81.
+ * The declared data length is header byte 2, so we know how much to expect.
+ * All of this is touched only by the NimBLE host task. */
+#define RX_TIMEOUT_MS 1000
+static uint8_t  rxBuf[RAW_FRAME_MAX];
+static size_t   rxLen = 0;
+static bool     rxActive = false;
+static unsigned long rxStartedAt = 0;
+static bt_command_t rxCmd;
+
 bool getRawPageFrame(uint8_t page, uint8_t *dst, size_t dstSize, size_t *len, uint8_t *offset) {
   bool found = false;
   portENTER_CRITICAL(&rawFrameMux);
@@ -201,24 +217,55 @@ static void notifyCallback(
     }
 #endif
 
-    bt_command_t command_handle;
-    // Zero timeout: this runs in the NimBLE host task, so blocking here stalls
-    // the BLE stack. A response with no matching queued command is dropped.
-    if(xQueueReceive(commandHandleQueue, &command_handle, 0)){
-      // Keep a verbatim copy of the register page for GET /rawPage, before
-      // parsing, so it shows what actually arrived rather than what the map
-      // happens to name.
-      if (length > 0 && length <= RAW_FRAME_MAX) {
-        portENTER_CRITICAL(&rawFrameMux);
-        memcpy(rawFrame, pData, length);
-        rawFrameLen    = length;
-        rawFramePage   = command_handle.page;
-        rawFrameOffset = command_handle.offset;
-        portEXIT_CRITICAL(&rawFrameMux);
-      }
-      parse_bluetooth_data(command_handle.page, command_handle.offset, pData, length);
+    // Abandon a partial response whose remainder never arrived, rather than
+    // appending an unrelated frame to it.
+    if (rxActive && (millis() - rxStartedAt) > RX_TIMEOUT_MS) {
+      rxActive = false;
+      rxLen = 0;
+      Serial.println(F("[BT] incomplete response abandoned"));
     }
-   
+
+    // Zero timeout: this runs in the NimBLE host task, so blocking here stalls
+    // the BLE stack. A frame with no request outstanding is dropped.
+    if (!rxActive) {
+      if (!xQueueReceive(commandHandleQueue, &rxCmd, 0)) {
+        return;
+      }
+      rxActive = true;
+      rxLen = 0;
+      rxStartedAt = millis();
+    }
+
+    if (length == 0 || rxLen + length > sizeof(rxBuf)) {
+      rxActive = false;
+      rxLen = 0;
+      return;
+    }
+    memcpy(rxBuf + rxLen, pData, length);
+    rxLen += length;
+
+    if (rxLen < 3) {
+      return;                       // not even the header yet
+    }
+    size_t frameLen = 3 + (size_t)rxBuf[2];
+    if (rxLen < frameLen) {
+      return;                       // more notifications to come
+    }
+
+    // Complete. Keep header + declared data for GET /rawPage (the trailing CRC
+    // is not part of the register image).
+    if (rxCmd.page == 0x00 && frameLen <= RAW_FRAME_MAX) {
+      portENTER_CRITICAL(&rawFrameMux);
+      memcpy(rawFrame, rxBuf, frameLen);
+      rawFrameLen    = frameLen;
+      rawFramePage   = rxCmd.page;
+      rawFrameOffset = rxCmd.offset;
+      portEXIT_CRITICAL(&rawFrameMux);
+    }
+
+    parse_bluetooth_data(rxCmd.page, rxCmd.offset, rxBuf, frameLen);
+    rxActive = false;
+    rxLen = 0;
 }
 
 bool connectToServer() {
