@@ -7,10 +7,11 @@ set, and the on-board display.
 Runs on a **LilyGo T-Display S3** (ESP32-S3R8, 16 MB flash, 8 MB PSRAM, 1.9"
 ST7789V 170x320 on the 8-bit parallel bus).
 
-Originally based on the community `Bluetti_ESP32_Bridge` project. This copy has
-been reworked for the T-Display S3 and extended: a power dashboard, four display
-pages, two working buttons, Home Assistant discovery, and a verified register map
-for the AC200M.
+A derivative of
+[mariolukas/Bluetti_ESP32_Bridge](https://github.com/mariolukas/Bluetti_ESP32_Bridge)
+(GPL-3.0), reworked for the T-Display S3 and extended: a power dashboard, four
+display pages, two working buttons, Home Assistant discovery, and a verified
+register map for the AC200M. See [License and attribution](#license-and-attribution).
 
 ---
 
